@@ -9,8 +9,11 @@ sock:  sock.c
 
 hello:  hello.cxx
 	$(CPP) -o $@ $^
+	
+dns:  dns.c
+	$(CC) -o $@ $^
 
 .PHONY:  clean
 
 clean:
-	rm -rf main sock hello
+	rm -rf main sock hello dns
