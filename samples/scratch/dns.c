@@ -118,7 +118,7 @@ void ngethostbyname(unsigned char *host , int query_type)
     struct DNS_HEADER *dns = NULL;
     struct QUESTION *qinfo = NULL;
  
-    printf("Resolving %s" , host);
+    printf("Resolving %s through %s" , host, dns_servers[0]);
  
     s = socket(AF_INET , SOCK_DGRAM , IPPROTO_UDP); //UDP packet for DNS queries
  
@@ -367,6 +367,7 @@ void get_dns_servers()
 {
     FILE *fp;
     char line[200] , *p;
+    int iServer = 0;
     if((fp = fopen("/etc/resolv.conf" , "r")) == NULL)
     {
         printf("Failed opening /etc/resolv.conf file \n");
@@ -381,15 +382,20 @@ void get_dns_servers()
         if(strncmp(line , "nameserver" , 10) == 0)
         {
             p = strtok(line , " ");
-            p = strtok(NULL , " ");
-             
-            //p now is the dns ip :)
-            //????
+            p = strtok(NULL , "\n");
+            printf("Found dns server %s\n", p);
+            strcpy(dns_servers[iServer++], p);
+            if (iServer == 3)
+            {
+                break;
+            }
         }
     }
-     
-    strcpy(dns_servers[0] , "208.67.222.222");
-    strcpy(dns_servers[1] , "208.67.220.220");
+
+    if (iServer == 0)
+    {
+        strcpy(dns_servers[0] , "8.8.8.8");
+    }
 }
  
 /*
