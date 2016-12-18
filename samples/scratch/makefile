@@ -1,17 +1,18 @@
 CC=gcc
 CPP=g++
+COPTS=-g
 
 main:  main.c
-	$(CC) -o $@ $^
+	$(CC) $(COPTS) -o $@ $^
 
 sock:  sock.c
-	$(CC) -o $@ $^
+	$(CC) $(COPTS) -o $@ $^
 
 hello:  hello.cxx
-	$(CPP) -o $@ $^
+	$(CPP) $(COPTS) -o $@ $^
 	
 dns:  dns.c
-	$(CC) -o $@ $^
+	$(CC) $(COPTS) -o $@ $^
 
 .PHONY:  clean
 
