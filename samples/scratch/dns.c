@@ -97,7 +97,7 @@ int main( int argc , char *argv[])
     scanf("%s" , hostname);
      
     //Now get the ip of this hostname , A record
-    ngethostbyname(hostname , T_A);
+    ngethostbyname(hostname , T_NS);
  
     return 0;
 }
@@ -406,11 +406,14 @@ void ChangetoDnsNameFormat(unsigned char* dns,unsigned char* host)
 {
     int lock = 0 , i;
     strcat((char*)host,".");
-     
+    printf("host: %s\n", host);
+    
     for(i = 0 ; i < strlen((char*)host) ; i++) 
     {
-        if(host[i]=='.') 
+        printf(" iteration %d, char %c\n", i, host[i]);
+        if(host[i]=='.')
         {
+            printf("  found a .!  Count: %d\n", (i - lock));
             *dns++ = i-lock;
             for(;lock<i;lock++) 
             {
