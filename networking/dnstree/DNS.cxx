@@ -1,4 +1,5 @@
 #include "DNS.h"
+#include "DNSResponse.h"
 #include <string.h>
 #include <arpa/inet.h>
 #include <stdio.h>
@@ -7,6 +8,7 @@
 namespace
 {
 	const char c_Separator = '.';
+    const char c_PointerMask = 0xc0; // 11000000
 }
 
 namespace ApplicationLayer
@@ -23,12 +25,21 @@ namespace ApplicationLayer
             return dnsHeader;
         }
 
+        const Question* QuestionFromBuffer(const char* buffer)
+        {
+            Question *question = (Question*)(buffer);
+            question->QType = ::ntohs(question->QType);
+            question->QClass = ::ntohs(question->QClass);
+            return question;
+        }
+
         const RRHeader* RRHeaderFromBuffer(const char* buffer)
         {
             RRHeader* rrHeader = (RRHeader*)(buffer);
             rrHeader->Class = ::ntohs(rrHeader->Class);
             rrHeader->Type = ::ntohs(rrHeader->Type);
             rrHeader->TimeToLive = ::ntohl(rrHeader->TimeToLive);
+            rrHeader->DataLength = ::ntohs(rrHeader->DataLength);
             return rrHeader;
         }
 
@@ -123,7 +134,6 @@ namespace ApplicationLayer
 
         int ParseDomainNameHelper(const char* data, int cbData, int offsetOfDomainName, char* domainName, int& cbDomainName, bool firstCall)
 		{
-			const char c_PointerMask = 0xc0; // 11000000
 			const char* read = data + offsetOfDomainName;
 			char* write = domainName;
 			while (true)
@@ -187,6 +197,41 @@ namespace ApplicationLayer
         int ParseDomainName(const char* data, int cbData, int offsetOfDomainName, char* domainName, int& cbDomainName)
         {
             return ParseDomainNameHelper(data, cbData, offsetOfDomainName, domainName, cbDomainName, true);
+        }
+
+        int CbDomainName(const char* data, const int cbData)
+        {
+            const char* read = data;
+
+            while (true)
+            {
+                if (read - data > cbData)
+                {
+                    return 0;
+                }
+
+                char length = *read;
+                if (length == 0)
+                {
+                    // Read the 0 length
+                    read += 1;
+                    break;
+                }                
+                else if ((length & c_PointerMask) == c_PointerMask)
+                {
+                    // remove the pointer mask and combine with the next byte
+                    // to get the jump target, but that's it for this host in the buffer
+                    read += 2;
+                    break;
+                }
+                else
+                {
+                    // The length character plus the value as the count of letters in the next section
+                    read += length + 1;
+                }
+            }
+        
+            return (read - data);
         }
 	}
 }

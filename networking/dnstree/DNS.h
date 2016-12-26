@@ -1,3 +1,6 @@
+#ifndef _DNS_H_
+#define _DNS_H_
+
 namespace ApplicationLayer
 {
 	namespace DNS
@@ -31,12 +34,15 @@ namespace ApplicationLayer
             unsigned short QClass;
         };
 
+        #pragma pack(push, 1)
         struct RRHeader
         {
             unsigned short Type;
             unsigned short Class;
             unsigned int TimeToLive;
+            unsigned short DataLength;
         };
+        #pragma pack(pop)
 
         class RRType
         {
@@ -91,9 +97,13 @@ namespace ApplicationLayer
         };
 
         const DNSHeader* DNSHeaderFromBuffer(const char* buffer);
+        const Question* QuestionFromBuffer(const char* buffer);
         const RRHeader* RRHeaderFromBuffer(const char* buffer);
 		int AddQuestion(char* data, int cbData, const char* name, unsigned short rrType, unsigned short rrClass);
 		int WriteDomainName(const char* domainName, int cbDomainName, char* data, int cbData);
 		int ParseDomainName(const char* data, int cbData, int offsetOfDomainName, char* domainName, int& cbDomainName);
+        int CbDomainName(const char* data, const int cbData);
 	}
 }
+
+#endif // _DNS_H_
