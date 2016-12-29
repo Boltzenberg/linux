@@ -1,6 +1,8 @@
 #ifndef _DNS_H_
 #define _DNS_H_
 
+#include <string.h>
+
 namespace ApplicationLayer
 {
 	namespace DNS
@@ -76,6 +78,23 @@ namespace ApplicationLayer
                     case AAAA: return "AAAA";
                     default: return "Unknown";
                 }
+            }
+
+            #define PARSE(t) { if (!::strcmp(strType, #t)) { type = t; return true; } }
+            static const bool TryParse(const char* strType, unsigned short& type)
+            {
+                PARSE(A);
+                PARSE(NS);
+                PARSE(CNAME);
+                PARSE(SOA);
+                PARSE(WKS);
+                PARSE(PTR);
+                PARSE(HINFO);
+                PARSE(MINFO);
+                PARSE(MX);
+                PARSE(TXT);
+                PARSE(AAAA);
+                return false;
             }
         };
 

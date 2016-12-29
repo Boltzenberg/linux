@@ -7,7 +7,12 @@
 #include "DNSResponse.h"
 #include "DNSDebug.h"
 
-unsigned short g_headerId = 123;
+namespace
+{
+    const unsigned short g_headerId = 123;
+    const char* c_defaultHost = "www.google.com";
+    const unsigned short c_defaultQueryType = ApplicationLayer::DNS::RRType::A;
+}
 
 int ConstructDNSQuery(char* buffer, int cb, const char* domainName, const unsigned short type, unsigned int dest)
 {
@@ -373,6 +378,27 @@ void PrintResponse(const char* buffer, int cb)
     printf("\n");
 }
 
+const char* GetHostToResolve(int argc, char **argv)
+{
+    if (argc < 2)
+    {
+        return c_defaultHost;
+    }
+
+    return argv[1];
+}
+
+const unsigned short GetRecordTypeToQuery(int argc, char **argv)
+{
+    unsigned short type = c_defaultQueryType;
+    if ((argc < 3) || !ApplicationLayer::DNS::RRType::TryParse(argv[2], type))
+    {
+        type = c_defaultQueryType;
+    }
+
+    return type;
+}
+
 int main(int argc, char **argv)
 {
 	int s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
@@ -384,11 +410,10 @@ int main(int argc, char **argv)
 		printf("Could not create socket.\n");
 	}
 	
-	//const char* pszHost = ".";
-	//const char* pszHost = "www.cnn.com";
-    //const char* pszHost = "who.afdentry.net";
-    const char* pszHost = "www.google.com";
-    const unsigned short type = ApplicationLayer::DNS::RRType::AAAA;
+	const char* pszHost = GetHostToResolve(argc, argv);
+    const unsigned short type = GetRecordTypeToQuery(argc, argv);
+    printf("Querying '%s' for record of type '%s'\n", pszHost, ApplicationLayer::DNS::RRType::ToString(type));
+    
 	char data[1500];
 	size_t cbData = sizeof(data);
 	
