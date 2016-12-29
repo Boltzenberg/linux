@@ -57,6 +57,7 @@ namespace ApplicationLayer
             static const unsigned short MINFO = 14; // mailbox or mail list information
             static const unsigned short MX = 15; // mail exchange
             static const unsigned short TXT = 16; // text strings
+            static const unsigned short AAAA = 28; // aaaa host address
 
             static const char* ToString(const unsigned short type)
             {
@@ -72,6 +73,7 @@ namespace ApplicationLayer
                     case MINFO: return "MINFO";
                     case MX: return "MX";
                     case TXT: return "TXT";
+                    case AAAA: return "AAAA";
                     default: return "Unknown";
                 }
             }

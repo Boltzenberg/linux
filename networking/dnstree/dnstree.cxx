@@ -143,17 +143,32 @@ void PrintTXTData(const char* buffer, int cb, int dataOffset, int dataLength)
 void PrintDNSResourceRecord(const ApplicationLayer::DNS::DNSResponseRecord& record)
 {
     char host[256];
-    int cbHost = record.CopyDomainName(host, sizeof(host));
-
     char data[256];
-    int cbData = record.CopyDataAsString(data, sizeof(data));
+    int cbHost = record.CopyDomainName(host, sizeof(host));
 
     printf("       Host: %.*s\n", cbHost, host);
     printf("       Type: %s\n", ApplicationLayer::DNS::RRType::ToString(record.GetType()));
     printf("      Class: %s\n", ApplicationLayer::DNS::RRClass::ToString(record.GetClass()));
     printf("        TTL: %d\n", record.GetTimeToLive());
     printf("Data Length: %d\n", record.GetDataLength());
-    printf("       Data: %.*s\n", cbData, data);
+    if (record.GetType() == ApplicationLayer::DNS::RRType::A)
+    {
+        int address;
+        record.CopyDataAsAddress(address);
+        printf("       Data: %s\n", ::inet_ntop(AF_INET, &address, data, INET_ADDRSTRLEN));
+    }
+    else if (record.GetType() == ApplicationLayer::DNS::RRType::AAAA)
+    {
+        in6_addr address;
+        record.CopyDataAsAddress(address);
+        printf("       Data: %s\n", ::inet_ntop(AF_INET6, &address, data, INET6_ADDRSTRLEN));
+    }
+    else
+    {
+        int cbData = record.CopyDataAsString(data, sizeof(data));
+        printf("       Data: %.*s\n", cbData, data);
+    }
+    
     printf("\n");
 }
 
@@ -371,8 +386,9 @@ int main(int argc, char **argv)
 	
 	//const char* pszHost = ".";
 	//const char* pszHost = "www.cnn.com";
-    const char* pszHost = "who.afdentry.net";
-    const unsigned short type = ApplicationLayer::DNS::RRType::TXT;
+    //const char* pszHost = "who.afdentry.net";
+    const char* pszHost = "www.google.com";
+    const unsigned short type = ApplicationLayer::DNS::RRType::AAAA;
 	char data[1500];
 	size_t cbData = sizeof(data);
 	

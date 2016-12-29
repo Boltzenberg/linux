@@ -225,9 +225,14 @@ namespace ApplicationLayer
             return m_header->DataLength;
         }
             
-        void DNSResponseRecord::CopyRawData(char* data, int cbData) const
+        void DNSResponseRecord::CopyDataAsAddress(int& address) const
         {
-            ::memcpy(data, m_buffer + m_dataOffset, m_header->DataLength);
+            address = *(int *)(m_buffer + m_dataOffset);
+        }
+
+        void DNSResponseRecord::CopyDataAsAddress(in6_addr& address) const
+        {
+            address = *(in6_addr *)(m_buffer + m_dataOffset);
         }
 
         int DNSResponseRecord::CopyDataAsString(char* data, int cbData) const

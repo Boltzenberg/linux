@@ -1,4 +1,5 @@
 #include "DNS.h"
+#include <netinet/in.h>
 
 namespace ApplicationLayer
 {
@@ -40,7 +41,8 @@ namespace ApplicationLayer
                 const unsigned short GetClass() const;
                 const unsigned int GetTimeToLive() const;
                 const unsigned short GetDataLength() const;
-                void CopyRawData(char* data, int cbData) const;
+                void CopyDataAsAddress(int& address) const;
+                void CopyDataAsAddress(in6_addr& address) const;
                 int CopyDataAsString(char* data, int cbData) const;
 
             private:
