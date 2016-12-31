@@ -12,6 +12,7 @@ namespace
     const unsigned short g_headerId = 123;
     const char* c_defaultHost = "www.google.com";
     const unsigned short c_defaultQueryType = ApplicationLayer::DNS::RRType::A;
+    const char* c_defaultDNSServer = "8.8.8.8";
 }
 
 int ConstructDNSQuery(char* buffer, int cb, const char* domainName, const unsigned short type, unsigned int dest)
@@ -399,6 +400,16 @@ const unsigned short GetRecordTypeToQuery(int argc, char **argv)
     return type;
 }
 
+const char* GetDNSServerToUse(int argc, char **argv)
+{
+    if (argc < 4)
+    {
+        return c_defaultDNSServer;
+    }
+
+    return argv[3];
+}
+
 int main(int argc, char **argv)
 {
 	int s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
@@ -412,12 +423,13 @@ int main(int argc, char **argv)
 	
 	const char* pszHost = GetHostToResolve(argc, argv);
     const unsigned short type = GetRecordTypeToQuery(argc, argv);
-    printf("Querying '%s' for record of type '%s'\n", pszHost, ApplicationLayer::DNS::RRType::ToString(type));
+    const char* pszDnsServer = GetDNSServerToUse(argc, argv);
+    printf("Querying '%s' for record of type '%s' for '%s'\n", pszDnsServer, ApplicationLayer::DNS::RRType::ToString(type), pszHost);
     
 	char data[1500];
 	size_t cbData = sizeof(data);
 	
-	server.sin_addr.s_addr = inet_addr("8.8.8.8");
+	server.sin_addr.s_addr = inet_addr(pszDnsServer);
 	server.sin_family = AF_INET;
 	server.sin_port = htons(53);
 	
@@ -441,7 +453,9 @@ int main(int argc, char **argv)
 		return 1;
 	}
 	
-	printf("Reply received!\n");
+	printf("Reply received: %d bytes!\n", cbRead);
+    DumpBufferAsHex(data, cbRead);
+    printf("\n\n");
 	PrintResponse2(data, cbRead);
 	
 	close(s);

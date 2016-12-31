@@ -9,6 +9,7 @@ namespace
 {
 	const char c_Separator = '.';
     const char c_PointerMask = 0xc0; // 11000000
+    const bool c_debugTraceEnabled = false;
 }
 
 namespace ApplicationLayer
@@ -109,6 +110,10 @@ namespace ApplicationLayer
 			char length = *read;
 			if (length == 0)
 			{
+                if (c_debugTraceEnabled)
+                {
+                    printf("1. terminating\n");
+                }
                 *write = '\0';
                 bytesWritten++;
 				return true;
@@ -121,21 +126,30 @@ namespace ApplicationLayer
 
 			if (includeSeparator)
 			{
+                if (c_debugTraceEnabled)
+                {
+                    printf("2. separator\n");
+                }
 				*write = c_Separator;
 				write++;
 				bytesWritten++;
 			}
 
+            if (c_debugTraceEnabled)
+            {
+                printf("3. %.*s\n", length, read + 1);
+            }
 			::memcpy(write, read + 1, length);
 			bytesRead += length;
 			bytesWritten += length;
 			return true;
 		}
 
-        int ParseDomainNameHelper(const char* data, int cbData, int offsetOfDomainName, char* domainName, int& cbDomainName, bool firstCall)
+        int ParseDomainNameHelper(const char* data, int cbData, int offsetOfDomainName, char* domainName, int& cbDomainName, bool firstCall, bool wroteAnything)
 		{
 			const char* read = data + offsetOfDomainName;
 			char* write = domainName;
+
 			while (true)
 			{
 				if (read - data > cbData)
@@ -143,29 +157,32 @@ namespace ApplicationLayer
 					return 0;
 				}
 
-				bool includeSeparator = (write != domainName);
 				char length = *read;
 				if ((length & c_PointerMask) == c_PointerMask)
 				{
+                    if (c_debugTraceEnabled)
+                    {
+                        DumpBufferAsHex(read, 2);
+                        printf("\n");
+                    }
+                    
 					read++;
 					if (read - data > cbData)
 					{
 						return 0;
 					}
 
-					short offset = (length & ~c_PointerMask);
+					unsigned short offset = (length & ~c_PointerMask);
 					offset = offset << 8;
-					offset = offset + *read;
+					offset = offset + (unsigned char)*read;
 					read++;
 
-                    if (firstCall && includeSeparator)
+                    if (c_debugTraceEnabled)
                     {
-                        *write = c_Separator;
-                        write++;
-                        cbDomainName++;
+                        printf("Jumping to offset %d.\n", offset);
                     }
-
-                    if (ParseDomainNameHelper(data, cbData, offset, write, cbDomainName, false) == 0)
+                    
+                    if (ParseDomainNameHelper(data, cbData, offset, write, cbDomainName, false, wroteAnything) == 0)
                     {
                         return 0;
                     }
@@ -175,7 +192,7 @@ namespace ApplicationLayer
 				else
 				{
 					int bytesRead, bytesWritten;
-					if (!CopyDomainNameSegment(read, cbData - (read - data), write, cbDomainName, includeSeparator, bytesRead, bytesWritten))
+					if (!CopyDomainNameSegment(read, cbData - (read - data), write, cbDomainName, wroteAnything, bytesRead, bytesWritten))
 					{
 						return 0;
 					}
@@ -183,6 +200,7 @@ namespace ApplicationLayer
 					read += bytesRead;
 					write += bytesWritten;
 					cbDomainName -= bytesWritten;
+                    wroteAnything = true;
 
                     if (length == 0)
                     {
@@ -196,7 +214,7 @@ namespace ApplicationLayer
         
         int ParseDomainName(const char* data, int cbData, int offsetOfDomainName, char* domainName, int& cbDomainName)
         {
-            return ParseDomainNameHelper(data, cbData, offsetOfDomainName, domainName, cbDomainName, true);
+            return ParseDomainNameHelper(data, cbData, offsetOfDomainName, domainName, cbDomainName, true, false);
         }
 
         int CbDomainName(const char* data, const int cbData)
