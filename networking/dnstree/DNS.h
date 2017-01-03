@@ -44,6 +44,17 @@ namespace ApplicationLayer
             unsigned int TimeToLive;
             unsigned short DataLength;
         };
+
+        struct OPTRRHeader
+        {
+            unsigned short Type; // must be OPT
+            unsigned short UDPPayloadSize; // Class
+            unsigned char ExtendedRCode;
+            unsigned char Version;
+            unsigned short DO : 1; // DNSSEC OK
+            unsigned short Zero : 15;
+            unsigned short DataLength;
+        };
         #pragma pack(pop)
 
         class RRType
@@ -60,6 +71,7 @@ namespace ApplicationLayer
             static const unsigned short MX = 15; // mail exchange
             static const unsigned short TXT = 16; // text strings
             static const unsigned short AAAA = 28; // aaaa host address
+            static const unsigned short OPT = 41; // OPT pseudo-rr type:  https://tools.ietf.org/rfc/rfc6891.txt
 
             static const char* ToString(const unsigned short type)
             {
@@ -76,6 +88,7 @@ namespace ApplicationLayer
                     case MX: return "MX";
                     case TXT: return "TXT";
                     case AAAA: return "AAAA";
+                    case OPT: return "OPT";
                     default: return "Unknown";
                 }
             }
@@ -94,6 +107,7 @@ namespace ApplicationLayer
                 PARSE(MX);
                 PARSE(TXT);
                 PARSE(AAAA);
+                PARSE(OPT);
                 return false;
             }
         };
@@ -119,8 +133,11 @@ namespace ApplicationLayer
 
         const DNSHeader* DNSHeaderFromBuffer(const char* buffer);
         const Question* QuestionFromBuffer(const char* buffer);
+        unsigned short RRTypeFromHeader(const char* buffer);
         const RRHeader* RRHeaderFromBuffer(const char* buffer);
+        const OPTRRHeader* OPTRRHeaderFromBuffer(const char* buffer);
 		int AddQuestion(char* data, int cbData, const char* name, unsigned short rrType, unsigned short rrClass);
+        int AddOPTRR(char* data, int cbData, unsigned short udpPayloadSize, unsigned char extendedRCode, unsigned char version, bool dnssecOK);
 		int WriteDomainName(const char* domainName, int cbDomainName, char* data, int cbData);
 		int ParseDomainName(const char* data, int cbData, int offsetOfDomainName, char* domainName, int& cbDomainName);
         int CbDomainName(const char* data, const int cbData);

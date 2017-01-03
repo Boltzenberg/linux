@@ -13,6 +13,7 @@ namespace
     const char* c_defaultHost = "www.google.com";
     const unsigned short c_defaultQueryType = ApplicationLayer::DNS::RRType::A;
     const char* c_defaultDNSServer = "8.8.8.8";
+    static char c_localDNSServer[64];
 }
 
 int ConstructDNSQuery(char* buffer, int cb, const char* domainName, const unsigned short type, unsigned int dest)
@@ -37,12 +38,15 @@ int ConstructDNSQuery(char* buffer, int cb, const char* domainName, const unsign
 	dnsHeader->QuestionCount = ::htons(1);
 	dnsHeader->AnswerCount = ::htons(0);
 	dnsHeader->AuthorityRecordCount = ::htons(0);
-	dnsHeader->AdditionalRecordCount = ::htons(0);
-	
+	dnsHeader->AdditionalRecordCount = ::htons(1);
+
 	char* dnsQuery = (char*)(dnsHeader + 1);
 	int cbQuery = ApplicationLayer::DNS::AddQuestion(dnsQuery, cb - (dnsQuery - buffer), domainName, type, ApplicationLayer::DNS::RRClass::IN);
-	char* end = dnsQuery + cbQuery;
-	
+
+	char* optRR = dnsQuery + cbQuery;
+	int cbOptRR = ApplicationLayer::DNS::AddOPTRR(optRR, cb - (optRR - buffer), 4096, 0, 0, false);
+
+    char* end = optRR + cbOptRR;
 	return end - buffer;
 }
 
@@ -152,27 +156,36 @@ void PrintDNSResourceRecord(const ApplicationLayer::DNS::DNSResponseRecord& reco
     char data[256];
     int cbHost = record.CopyDomainName(host, sizeof(host));
 
-    printf("       Host: %.*s\n", cbHost, host);
-    printf("       Type: %s\n", ApplicationLayer::DNS::RRType::ToString(record.GetType()));
-    printf("      Class: %s\n", ApplicationLayer::DNS::RRClass::ToString(record.GetClass()));
-    printf("        TTL: %d\n", record.GetTimeToLive());
-    printf("Data Length: %d\n", record.GetDataLength());
+    printf("          Host: %.*s\n", cbHost, host);
+    printf("          Type: %s\n", ApplicationLayer::DNS::RRType::ToString(record.GetType()));
+    if (record.GetType() == ApplicationLayer::DNS::RRType::OPT)
+    {
+        printf("UDPPayloadSize: %d\n", record.GetUDPPayloadSize());
+        printf("       Version: %d\n", record.GetVersion());
+        printf("     DNSSEC OK: %d\n", record.DNSSecOK());
+    }
+    else
+    {
+        printf("         Class: %s\n", ApplicationLayer::DNS::RRClass::ToString(record.GetClass()));
+        printf("           TTL: %d\n", record.GetTimeToLive());
+    }
+    printf("   Data Length: %d\n", record.GetDataLength());
     if (record.GetType() == ApplicationLayer::DNS::RRType::A)
     {
         int address;
         record.CopyDataAsAddress(address);
-        printf("       Data: %s\n", ::inet_ntop(AF_INET, &address, data, INET_ADDRSTRLEN));
+        printf("          Data: %s\n", ::inet_ntop(AF_INET, &address, data, INET_ADDRSTRLEN));
     }
     else if (record.GetType() == ApplicationLayer::DNS::RRType::AAAA)
     {
         in6_addr address;
         record.CopyDataAsAddress(address);
-        printf("       Data: %s\n", ::inet_ntop(AF_INET6, &address, data, INET6_ADDRSTRLEN));
+        printf("          Data: %s\n", ::inet_ntop(AF_INET6, &address, data, INET6_ADDRSTRLEN));
     }
     else
     {
         int cbData = record.CopyDataAsString(data, sizeof(data));
-        printf("       Data: %.*s\n", cbData, data);
+        printf("          Data: %.*s\n", cbData, data);
     }
     
     printf("\n");
@@ -190,43 +203,72 @@ int PrintResourceRecord(const char* buffer, int cb, int answerOffset)
         return 0;
     }
 
-    const ApplicationLayer::DNS::RRHeader* header = ApplicationLayer::DNS::RRHeaderFromBuffer(read);
-    read += sizeof(ApplicationLayer::DNS::RRHeader);
-    cbRead += sizeof(ApplicationLayer::DNS::RRHeader);
+    unsigned short type = ApplicationLayer::DNS::RRTypeFromHeader(read);
+    printf("Rendering header of type %d\n", type);
+    if (type == ApplicationLayer::DNS::RRType::OPT)
+    {
+        const ApplicationLayer::DNS::OPTRRHeader* header = ApplicationLayer::DNS::OPTRRHeaderFromBuffer(read);
+        read += sizeof(ApplicationLayer::DNS::OPTRRHeader);
+        cbRead += sizeof(ApplicationLayer::DNS::OPTRRHeader);
+        
+        if (cb < cbRead)
+        {
+            return 0;
+        }
+
+        const char* rData = read;
+
+        read += header->DataLength;
+        cbRead += header->DataLength;
+
+        printf("          Host: %.*s\n", cbHost, host);
+        printf("          Type: %s\n", ApplicationLayer::DNS::RRType::ToString(header->Type));
+        printf("UDPPayloadSize: %d\n", header->UDPPayloadSize);
+        printf("       Version: %d\n", header->Version);
+        printf("     DNSSEC OK: %d\n", header->DO);
+        printf("   Data Length: %d\n", header->DataLength);
+    }
+    else
+    {
+        const ApplicationLayer::DNS::RRHeader* header = ApplicationLayer::DNS::RRHeaderFromBuffer(read);
+        read += sizeof(ApplicationLayer::DNS::RRHeader);
+        cbRead += sizeof(ApplicationLayer::DNS::RRHeader);
+        
+        if (cb < cbRead)
+        {
+            return 0;
+        }
+
+        const char* rData = read;
+
+        read += header->DataLength;
+        cbRead += header->DataLength;
+
+        printf("       Host: %.*s\n", cbHost, host);
+        printf("       Type: %s\n", ApplicationLayer::DNS::RRType::ToString(header->Type));
+        printf("      Class: %s\n", ApplicationLayer::DNS::RRClass::ToString(header->Class));
+        printf("        TTL: %d\n", header->TimeToLive);
+        printf("Data Length: %d\n", header->DataLength);
+        printf("       Data: ");
+
+        switch (header->Type)
+        {
+            case ApplicationLayer::DNS::RRType::A: PrintAData(buffer, cb, (int)(rData - buffer), header->DataLength); break;
+            case ApplicationLayer::DNS::RRType::NS: PrintNSData(buffer, cb, (int)(rData - buffer), header->DataLength); break;
+            case ApplicationLayer::DNS::RRType::CNAME: PrintCNAMEData(buffer, cb, (int)(rData - buffer), header->DataLength); break;
+            case ApplicationLayer::DNS::RRType::SOA: PrintSOAData(buffer, cb, (int)(rData - buffer), header->DataLength); break;
+            case ApplicationLayer::DNS::RRType::WKS: PrintWKSData(buffer, cb, (int)(rData - buffer), header->DataLength); break;
+            case ApplicationLayer::DNS::RRType::PTR: PrintPTRData(buffer, cb, (int)(rData - buffer), header->DataLength); break;
+            case ApplicationLayer::DNS::RRType::HINFO: PrintHINFOData(buffer, cb, (int)(rData - buffer), header->DataLength); break;
+            case ApplicationLayer::DNS::RRType::MINFO: PrintMINFOData(buffer, cb, (int)(rData - buffer), header->DataLength); break;
+            case ApplicationLayer::DNS::RRType::MX: PrintMXData(buffer, cb, (int)(rData - buffer), header->DataLength); break;
+            case ApplicationLayer::DNS::RRType::TXT: PrintTXTData(buffer, cb, (int)(rData - buffer), header->DataLength); break;
+            default: printf("Unknown"); break;
+        }
+
+        printf("\n");
+    }
     
-    if (cb < cbRead)
-    {
-        return 0;
-    }
-
-    const char* rData = read;
-
-    read += header->DataLength;
-    cbRead += header->DataLength;
-
-    printf("       Host: %.*s\n", cbHost, host);
-    printf("       Type: %s\n", ApplicationLayer::DNS::RRType::ToString(header->Type));
-    printf("      Class: %s\n", ApplicationLayer::DNS::RRClass::ToString(header->Class));
-    printf("        TTL: %d\n", header->TimeToLive);
-    printf("Data Length: %d\n", header->DataLength);
-    printf("       Data: ");
-
-    switch (header->Type)
-    {
-        case ApplicationLayer::DNS::RRType::A: PrintAData(buffer, cb, (int)(rData - buffer), header->DataLength); break;
-        case ApplicationLayer::DNS::RRType::NS: PrintNSData(buffer, cb, (int)(rData - buffer), header->DataLength); break;
-        case ApplicationLayer::DNS::RRType::CNAME: PrintCNAMEData(buffer, cb, (int)(rData - buffer), header->DataLength); break;
-        case ApplicationLayer::DNS::RRType::SOA: PrintSOAData(buffer, cb, (int)(rData - buffer), header->DataLength); break;
-        case ApplicationLayer::DNS::RRType::WKS: PrintWKSData(buffer, cb, (int)(rData - buffer), header->DataLength); break;
-        case ApplicationLayer::DNS::RRType::PTR: PrintPTRData(buffer, cb, (int)(rData - buffer), header->DataLength); break;
-        case ApplicationLayer::DNS::RRType::HINFO: PrintHINFOData(buffer, cb, (int)(rData - buffer), header->DataLength); break;
-        case ApplicationLayer::DNS::RRType::MINFO: PrintMINFOData(buffer, cb, (int)(rData - buffer), header->DataLength); break;
-        case ApplicationLayer::DNS::RRType::MX: PrintMXData(buffer, cb, (int)(rData - buffer), header->DataLength); break;
-        case ApplicationLayer::DNS::RRType::TXT: PrintTXTData(buffer, cb, (int)(rData - buffer), header->DataLength); break;
-        default: printf("Unknown"); break;
-    }
-
-    printf("\n");
     printf("\n");
     
     return cbRead;
@@ -404,6 +446,36 @@ const char* GetDNSServerToUse(int argc, char **argv)
 {
     if (argc < 4)
     {
+        FILE *fp;
+        if((fp = ::fopen("/etc/resolv.conf" , "r")) != NULL)
+        {
+            bool fFoundNS = false;
+            char line[200];
+            while(::fgets(line, sizeof(line), fp))
+            {
+                if(line[0] == '#')
+                {
+                    continue;
+                }
+
+                const char c_nameserver[] = "nameserver";
+                if(::strncmp(line, c_nameserver, sizeof(c_nameserver) - 1) == 0)
+                {
+                    char* p = ::strtok(line , " ");
+                    p = ::strtok(NULL, "\n");
+                    ::strcpy(c_localDNSServer, p);
+                    fFoundNS = true;
+                    break;
+                }
+            }
+            ::fclose(fp);
+
+            if (fFoundNS)
+            {
+                return c_localDNSServer;
+            }
+        }
+        
         return c_defaultDNSServer;
     }
 

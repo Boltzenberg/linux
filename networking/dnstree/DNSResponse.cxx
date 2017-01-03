@@ -52,8 +52,16 @@ namespace ApplicationLayer
             {
                 // Read all of the authorities to advance to the beginning of the additional headers
                 read += CbDomainName(read, cb - (read - buffer));
-                const RRHeader* header = RRHeaderFromBuffer(read);
-                read += sizeof(RRHeader) + header->DataLength;
+                if (RRTypeFromHeader(read) == RRType::OPT)
+                {
+                    const OPTRRHeader* header = OPTRRHeaderFromBuffer(read);
+                    read += sizeof(OPTRRHeader) + header->DataLength;
+                }
+                else
+                {
+                    const RRHeader* header = RRHeaderFromBuffer(read);
+                    read += sizeof(RRHeader) + header->DataLength;
+                }
             }
         }
 
@@ -183,6 +191,7 @@ namespace ApplicationLayer
             m_remainingRecordCount = recordCount - 1;
             int cbDomain = CbDomainName(buffer + startOffset, cb - startOffset);
             m_header = (RRHeader*)(buffer + startOffset + cbDomain);
+            m_optHeader = (OPTRRHeader*)(m_header);
             m_dataOffset = m_offset + cbDomain + sizeof(RRHeader);
             m_cbRecord = cbDomain + sizeof(RRHeader) + m_header->DataLength;
         }
@@ -219,7 +228,27 @@ namespace ApplicationLayer
         {
             return m_header->TimeToLive;
         }
-            
+
+        const unsigned short DNSResponseRecord::GetUDPPayloadSize() const
+        {
+            return m_optHeader->UDPPayloadSize;
+        }
+        
+        const unsigned char DNSResponseRecord::GetExtendedRCode() const
+        {
+            return m_optHeader->ExtendedRCode;
+        }
+        
+        const unsigned char DNSResponseRecord::GetVersion() const
+        {
+            return m_optHeader->Version;
+        }
+        
+        const bool DNSResponseRecord::DNSSecOK() const
+        {
+            return m_optHeader->DO == 1;
+        }
+        
         const unsigned short DNSResponseRecord::GetDataLength() const
         {
             return m_header->DataLength;
@@ -249,6 +278,7 @@ namespace ApplicationLayer
                 case ApplicationLayer::DNS::RRType::MINFO: return CopyDataNYI(data, cbData); break;
                 case ApplicationLayer::DNS::RRType::MX: return CopyMXData(data, cbData); break;
                 case ApplicationLayer::DNS::RRType::TXT: return CopyDataAsDomainName(data, cbData); break;
+                case ApplicationLayer::DNS::RRType::OPT: return CopyDataAsDomainName(data, cbData); break;
                 default: return snprintf(data, cbData, "Unknown"); break;
             }
         }

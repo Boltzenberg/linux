@@ -34,14 +34,28 @@ namespace ApplicationLayer
             return question;
         }
 
+        unsigned short RRTypeFromHeader(const char* buffer)
+        {
+            RRHeader* rrHeader = (RRHeader*)(buffer);
+            return ::ntohs(rrHeader->Type);
+        }
+        
         const RRHeader* RRHeaderFromBuffer(const char* buffer)
         {
             RRHeader* rrHeader = (RRHeader*)(buffer);
-            rrHeader->Class = ::ntohs(rrHeader->Class);
             rrHeader->Type = ::ntohs(rrHeader->Type);
+            rrHeader->Class = ::ntohs(rrHeader->Class);
             rrHeader->TimeToLive = ::ntohl(rrHeader->TimeToLive);
             rrHeader->DataLength = ::ntohs(rrHeader->DataLength);
             return rrHeader;
+        }
+
+        const OPTRRHeader* OPTRRHeaderFromBuffer(const char* buffer)
+        {
+            OPTRRHeader* header = (OPTRRHeader*)(buffer);
+            header->Type = ::ntohs(header->Type);
+            header->UDPPayloadSize = ::ntohs(header->UDPPayloadSize);
+            return header;
         }
 
 		int AddQuestion(char* data, int cbData, const char* name, unsigned short rrType, unsigned short rrClass)
@@ -57,6 +71,26 @@ namespace ApplicationLayer
 			remainingFields[1] = ::htons(rrClass);
 			return cbDomainName + 4;
 		}
+
+        int AddOPTRR(char* data, int cbData, unsigned short udpPayloadSize, unsigned char extendedRCode, unsigned char version, bool dnssecOK)
+        {
+            int cbDomainName = WriteDomainName(".", 1, data, cbData);
+            if (cbData < cbDomainName + sizeof(OPTRRHeader))
+            {
+                return 0;
+            }
+
+            OPTRRHeader* header = (OPTRRHeader*)(data + cbDomainName);
+            header->Type = ::htons(RRType::OPT);
+            header->UDPPayloadSize = ::htons(udpPayloadSize);
+            header->ExtendedRCode = extendedRCode;
+            header->Version = version;
+            header->DO = dnssecOK;
+            header->Zero = 0;
+            header->DataLength = 0;
+
+            return cbDomainName + sizeof(OPTRRHeader);
+        }
 
         // Turns www.google.com into 3www6google3com
 		int WriteDomainName(const char* domainName, int cbDomainName, char* data, int cbData)

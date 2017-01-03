@@ -38,8 +38,17 @@ namespace ApplicationLayer
 
                 const int CopyDomainName(char* domain, int cbDomain) const;
                 const unsigned short GetType() const;
+
+                // For GetType() != RRType::OPT
                 const unsigned short GetClass() const;
                 const unsigned int GetTimeToLive() const;
+
+                // For GetType() == RRType::OPT
+                const unsigned short GetUDPPayloadSize() const;
+                const unsigned char GetExtendedRCode() const;
+                const unsigned char GetVersion() const;
+                const bool DNSSecOK() const; // DNSSEC OK
+
                 const unsigned short GetDataLength() const;
                 void CopyDataAsAddress(int& address) const;
                 void CopyDataAsAddress(in6_addr& address) const;
@@ -59,6 +68,7 @@ namespace ApplicationLayer
                 int m_cbRecord;
                 int m_remainingRecordCount;
                 const RRHeader* m_header;
+                const OPTRRHeader* m_optHeader;
         };
         
         class DNSResponse
