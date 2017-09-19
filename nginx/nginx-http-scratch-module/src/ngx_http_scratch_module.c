@@ -60,7 +60,7 @@ ngx_module_t ngx_http_scratch_module = {
 
 // Merge config function
 static char *
-ngx_http_echo_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
+ngx_http_scratch_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
 {
     ngx_http_scratch_loc_conf_t *prev = parent;
     ngx_http_scratch_loc_conf_t *conf = child;
@@ -70,13 +70,13 @@ ngx_http_echo_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
 
 // Handler method
 static ngx_int_t
-ngx_http_echo_handler(ngx_http_request_t *r)
+ngx_http_scratch_handler(ngx_http_request_t *r)
 {
     ngx_int_t rc;
     ngx_buf_t *b;
     ngx_chain_t out;
-    ngx_http_scratch_loc_conf_t *configElemenet;
-    configElemenet = ngx_http_get_module_loc_conf(r, ngx_http_scratch_module);
+    ngx_http_scratch_loc_conf_t *configElement;
+    configElement = ngx_http_get_module_loc_conf(r, ngx_http_scratch_module);
 
     if (!(r->method & (NGX_HTTP_HEAD|NGX_HTTP_GET|NGX_HTTP_POST)))
     {
@@ -106,8 +106,8 @@ ngx_http_echo_handler(ngx_http_request_t *r)
 
     out.buf = b;
     out.next = NULL;
-    b->pos = configElemenet->echodata.data;
-    b->last = configElemenet->echodata.data + (configElemenet->echodata.len);
+    b->pos = configElement->echodata.data;
+    b->last = configElement->echodata.data + (configElement->echodata.len);
     b->memory = 1;
     b->last_buf = 1;
     rc = ngx_http_send_header(r);
@@ -121,7 +121,7 @@ ngx_http_echo_handler(ngx_http_request_t *r)
 
 // Creating a new instance of the module
 static char *
-ngx_http_echo(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+ngx_http_scratch(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
     ngx_http_core_loc_conf_t *clcf;
     clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module);
@@ -132,7 +132,7 @@ ngx_http_echo(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
 // Creating a new config object
 static void *
-ngx_http_echo_create_loc_conf(ngx_conf_t *cf)
+ngx_http_scratch_create_loc_conf(ngx_conf_t *cf)
 {
     ngx_http_scratch_loc_conf_t *conf;
     conf = ngx_pcalloc(cf->pool, sizeof(ngx_http_scratch_loc_conf_t));
@@ -141,14 +141,14 @@ ngx_http_echo_create_loc_conf(ngx_conf_t *cf)
         return NGX_CONF_ERROR;
     }
     
-    conf->ed.len = 0;
-    conf->ed.data = NULL;
+    conf->echodata.len = 0;
+    conf->echodata.data = NULL;
     return conf;
 }
 
 // Initialize the module
 static ngx_int_t
-ngx_http_echo_init(ngx_conf_t *cf)
+ngx_http_scratch_init(ngx_conf_t *cf)
 {
     return NGX_OK;
 }
