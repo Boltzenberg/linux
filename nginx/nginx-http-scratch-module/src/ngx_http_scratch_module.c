@@ -72,6 +72,10 @@ ngx_http_scratch_handler(ngx_http_request_t *r)
     ngx_buf_t *b;
     ngx_chain_t out;
     ngx_http_scratch_loc_conf_t *configElement;
+
+    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
+        "Scratch called to handle request");
+
     configElement = ngx_http_get_module_loc_conf(r, ngx_http_scratch_module);
 
     if (!(r->method & (NGX_HTTP_HEAD|NGX_HTTP_GET|NGX_HTTP_POST)))
