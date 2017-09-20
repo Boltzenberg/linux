@@ -17,6 +17,12 @@ static void *ngx_http_scratch_create_loc_conf(ngx_conf_t *cf);
 static char *ngx_http_scratch_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child);
 static ngx_int_t ngx_http_scratch_init(ngx_conf_t *cf);
 
+static ngx_int_t ngx_http_scratch_init_master(ngx_log_t *log);
+static ngx_int_t ngx_http_scratch_init_module(ngx_cycle_t *cycle);
+static ngx_int_t ngx_http_scratch_init_process(ngx_cycle_t *cycle);
+static void ngx_http_scratch_exit_process(ngx_cycle_t *cycle);
+static void ngx_http_scratch_exit_master(ngx_cycle_t *cycle);
+
 // Command configuration
 static ngx_command_t ngx_http_scratch_commands[] = {
     {
@@ -48,25 +54,15 @@ ngx_module_t ngx_http_scratch_module = {
     &ngx_http_scratch_module_ctx,          /* module context */
     ngx_http_scratch_commands,             /* module directives */
     NGX_HTTP_MODULE,                       /* module type */
-    NULL,                                  /* init master */
-    NULL,                                  /* init module */
-    NULL,                                  /* init process */
+    ngx_http_scratch_init_master,          /* init master */
+    ngx_http_scratch_init_module,          /* init module */
+    ngx_http_scratch_init_process,         /* init process */
     NULL,                                  /* init thread */
     NULL,                                  /* exit thread */
-    NULL,                                  /* exit process */
-    NULL,                                  /* exi master */
+    ngx_http_scratch_exit_process,         /* exit process */
+    ngx_http_scratch_exit_master,          /* exit master */
     NGX_MODULE_V1_PADDING
 };
-
-// Merge config function
-static char *
-ngx_http_scratch_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
-{
-    ngx_http_scratch_loc_conf_t *prev = parent;
-    ngx_http_scratch_loc_conf_t *conf = child;
-    ngx_conf_merge_str_value(conf->echodata, prev->echodata, NULL);
-    return NGX_CONF_OK;
-}
 
 // Handler method
 static ngx_int_t
@@ -124,6 +120,9 @@ static char *
 ngx_http_scratch(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
     ngx_http_core_loc_conf_t *clcf;
+
+    ngx_log_error(NGX_LOG_INFO, cf->log, 0, "Scratch initialized on config read");
+    
     clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module);
     clcf->handler = ngx_http_scratch_handler;
     ngx_conf_set_str_slot(cf,cmd,conf);
@@ -135,6 +134,9 @@ static void *
 ngx_http_scratch_create_loc_conf(ngx_conf_t *cf)
 {
     ngx_http_scratch_loc_conf_t *conf;
+
+    ngx_log_error(NGX_LOG_INFO, cf->log, 0, "Scratch called to create a config object");
+
     conf = ngx_pcalloc(cf->pool, sizeof(ngx_http_scratch_loc_conf_t));
     if (conf == NULL)
     {
@@ -146,14 +148,59 @@ ngx_http_scratch_create_loc_conf(ngx_conf_t *cf)
     return conf;
 }
 
+// Merge config function
+static char *
+ngx_http_scratch_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
+{
+    ngx_http_scratch_loc_conf_t *prev = parent;
+    ngx_http_scratch_loc_conf_t *conf = child;
+
+    ngx_log_error(NGX_LOG_INFO, cf->log, 0, "Scratch called to merge a config object");
+    
+    ngx_conf_merge_str_value(conf->echodata, prev->echodata, NULL);
+    return NGX_CONF_OK;
+}
+
 // Initialize the module
 static ngx_int_t
 ngx_http_scratch_init(ngx_conf_t *cf)
 {
+    ngx_log_error(NGX_LOG_INFO, cf->log, 0, "Scratch initialized post config");
     return NGX_OK;
 }
 
+static ngx_int_t 
+ngx_http_scratch_init_master(ngx_log_t *log)
+{
+    ngx_log_error(NGX_LOG_INFO, log, 0, "Scratch called for init master");
+    return NGX_OK;
+}
 
+static ngx_int_t 
+ngx_http_scratch_init_module(ngx_cycle_t *cycle)
+{
+    ngx_log_error(NGX_LOG_INFO, cycle->log, 0, "Scratch called for init module");
+    return NGX_OK;
+}
+
+static ngx_int_t 
+ngx_http_scratch_init_process(ngx_cycle_t *cycle)
+{
+    ngx_log_error(NGX_LOG_INFO, cycle->log, 0, "Scratch called for init process");
+    return NGX_OK;
+}
+
+static void 
+ngx_http_scratch_exit_process(ngx_cycle_t *cycle)
+{
+    ngx_log_error(NGX_LOG_INFO, cycle->log, 0, "Scratch called for exit process");
+}
+
+static void 
+ngx_http_scratch_exit_master(ngx_cycle_t *cycle)
+{
+    ngx_log_error(NGX_LOG_INFO, cycle->log, 0, "Scratch called for exit master");
+}
 
 
 
