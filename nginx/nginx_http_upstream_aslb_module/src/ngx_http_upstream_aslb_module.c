@@ -14,14 +14,16 @@ static ngx_int_t ngx_http_upstream_get_aslb_peer(ngx_peer_connection_t *pc,
 
 // Data structs for handling requests
 typedef struct {
-    /* the round robin data must be first */
-    ngx_http_upstream_rr_peer_data_t   rrp;
-    ngx_uint_t                         hash;
-    u_char                             addrlen;
-    u_char                            *addr;
-    u_char                             tries;
-    ngx_event_get_peer_pt              get_rr_peer;
-} ngx_http_upstream_aslb_peer_data_t;
+    struct sockaddr               *sockaddr;
+    socklen_t                      socklen;
+    ngx_str_t                      name;
+    ngx_str_t                      server;
+} ngx_http_upstream_aslb_peer_t;
+
+typedef struct {
+    ngx_uint_t                     peerCount;
+    ngx_http_upstream_aslb_peer_t *peerArray;
+} ngx_http_upstream_aslb_data_t;
 
 // Module registration
 static ngx_command_t ngx_http_upstream_aslb_commands[] = {
@@ -39,13 +41,10 @@ static ngx_command_t ngx_http_upstream_aslb_commands[] = {
 static ngx_http_module_t ngx_http_upstream_aslb_module_ctx = {
     NULL,                                  /* preconfiguration */
     NULL,                                  /* postconfiguration */
-
     NULL,                                  /* create main configuration */
     NULL,                                  /* init main configuration */
-
     NULL,                                  /* create server configuration */
     NULL,                                  /* merge server configuration */
-
     NULL,                                  /* create location configuration */
     NULL                                   /* merge location configuration */
 };
@@ -87,10 +86,7 @@ ngx_http_upstream_setup_aslb(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     uscf->peer.init_upstream = ngx_http_upstream_init_aslb;
 
     // Register the valid modifiers for the ASLB load balancer
-    uscf->flags = NGX_HTTP_UPSTREAM_CREATE
-                  |NGX_HTTP_UPSTREAM_FAIL_TIMEOUT
-                  |NGX_HTTP_UPSTREAM_DOWN
-                  |NGX_HTTP_UPSTREAM_BACKUP;
+    uscf->flags = NGX_HTTP_UPSTREAM_CREATE;
 
     return NGX_CONF_OK;
 }
@@ -100,18 +96,63 @@ ngx_http_upstream_setup_aslb(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 static ngx_int_t
 ngx_http_upstream_init_aslb(ngx_conf_t *cf, ngx_http_upstream_srv_conf_t *us)
 {
+    ngx_http_upstream_aslb_data_t *data;
+    ngx_http_upstream_aslb_peer_t *peerArray;
+    ngx_http_upstream_server_t    *server;
+    ngx_uint_t                     cAddr;
+
     ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "JONRO: aslb peer initialization");
-        
-    if (ngx_http_upstream_init_round_robin(cf, us) != NGX_OK) {
+
+    if (us->servers == NULL) {
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "ASLB is only valid for upstream servers");
         return NGX_ERROR;
     }
 
+    server = us->servers->elts;
+    cAddr = 0;
+    for (ngx_uint_t i = 0; i < us->servers->nelts; i++) {
+        cAddr += server[i].naddrs;
+    }
+
+    if (cAddr == 0) {
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "No servers in upstream \"%V\" in %s:%ui",
+            &us->host, us->file_name, us->line);
+        return NGX_ERROR;
+    }
+
+    peerArray = ngx_pcalloc(cf->pool, sizeof(ngx_http_upstream_aslb_peer_t) * cAddr);
+    if (peerArray == NULL) {
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "OOM creating the peer array");
+        return NGX_ERROR;
+    }
+
+    for (ngx_uint_t iPeer = 0, iServer = 0;
+         iServer < us->servers->nelts;
+         iServer++) {
+        for (ngx_uint_t iServerAddr = 0;
+             iServerAddr < server[iServer].naddrs;
+             iServerAddr++) {
+            peerArray[iPeer].sockaddr = server[iServer].addrs[iServerAddr].sockaddr;
+            peerArray[iPeer].socklen = server[iServer].addrs[iServerAddr].socklen;
+            peerArray[iPeer].name = server[iServer].addrs[iServerAddr].name;
+            peerArray[iPeer].server = server[iServer].name;
+            iPeer++;
+        }
+    }
+
+    data = ngx_pcalloc(cf->pool, sizeof(ngx_http_upstream_aslb_data_t));
+    if (data == NULL) {
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "OOM creating the ASLB data");
+        return NGX_ERROR;
+    }
+
+    data->peerCount = cAddr;
+    data->peerArray = peerArray;
+    us->peer.data = data;
     us->peer.init = ngx_http_upstream_init_aslb_peer;
 
     return NGX_OK;
 }
-
-static u_char ngx_http_upstream_aslb_pseudo_addr[3];
 
 // When a request comes in, this method gets all of the data needed
 // to successfully select an upstream server for the request.
@@ -119,51 +160,14 @@ static ngx_int_t
 ngx_http_upstream_init_aslb_peer(ngx_http_request_t *r,
     ngx_http_upstream_srv_conf_t *us)
 {
-    struct sockaddr_in                     *sin;
-#if (NGX_HAVE_INET6)
-    struct sockaddr_in6                    *sin6;
-#endif
-    ngx_http_upstream_aslb_peer_data_t  *aslbp;
-
-    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "JONRO: aslb 3");
+    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, 
+        "JONRO: ngx_http_upstream_init_aslb_peer");
     
-    aslbp = ngx_palloc(r->pool, sizeof(ngx_http_upstream_aslb_peer_data_t));
-    if (aslbp == NULL) {
-        return NGX_ERROR;
-    }
+    // Combine the ASLB health data with the servers configured
+    // in this upstream pool.
 
-    r->upstream->peer.data = &aslbp->rrp;
-
-    if (ngx_http_upstream_init_round_robin_peer(r, us) != NGX_OK) {
-        return NGX_ERROR;
-    }
-
+    r->upstream->peer.data = us->peer.data;
     r->upstream->peer.get = ngx_http_upstream_get_aslb_peer;
-
-    switch (r->connection->sockaddr->sa_family) {
-
-    case AF_INET:
-        sin = (struct sockaddr_in *) r->connection->sockaddr;
-        aslbp->addr = (u_char *) &sin->sin_addr.s_addr;
-        aslbp->addrlen = 3;
-        break;
-
-#if (NGX_HAVE_INET6)
-    case AF_INET6:
-        sin6 = (struct sockaddr_in6 *) r->connection->sockaddr;
-        aslbp->addr = (u_char *) &sin6->sin6_addr.s6_addr;
-        aslbp->addrlen = 16;
-        break;
-#endif
-
-    default:
-        aslbp->addr = ngx_http_upstream_aslb_pseudo_addr;
-        aslbp->addrlen = 3;
-    }
-
-    aslbp->hash = 89;
-    aslbp->tries = 0;
-    aslbp->get_rr_peer = ngx_http_upstream_get_round_robin_peer;
 
     return NGX_OK;
 }
@@ -174,102 +178,29 @@ ngx_http_upstream_init_aslb_peer(ngx_http_request_t *r,
 static ngx_int_t
 ngx_http_upstream_get_aslb_peer(ngx_peer_connection_t *pc, void *data)
 {
-    ngx_http_upstream_aslb_peer_data_t  *aslbp = data;
+    ngx_http_upstream_aslb_data_t  *aslbData = data;
 
-    time_t                        now;
-    ngx_int_t                     w;
-    uintptr_t                     m;
-    ngx_uint_t                    i, n, p, hash;
-    ngx_http_upstream_rr_peer_t  *peer;
-
-    ngx_log_error(NGX_LOG_INFO, pc->log, 0, "JONRO: aslb 4");
+    ngx_log_error(NGX_LOG_INFO, pc->log, 0, 
+        "JONRO: ngx_http_upstream_get_aslb_peer");
     
     ngx_log_debug1(NGX_LOG_DEBUG_HTTP, pc->log, 0,
                    "get aslb peer, try: %ui", pc->tries);
 
-    /* TODO: cached */
-
-    ngx_http_upstream_rr_peers_wlock(aslbp->rrp.peers);
-
-    if (aslbp->tries > 20 || aslbp->rrp.peers->single) {
-        ngx_http_upstream_rr_peers_unlock(aslbp->rrp.peers);
-        return aslbp->get_rr_peer(pc, &aslbp->rrp);
+    if (pc->tries >= aslbData->peerCount) {
+        ngx_log_error(NGX_LOG_INFO, pc->log, 0, 
+            "Out of options for peers to send to!");
+        return NGX_ERROR;
     }
 
-    now = ngx_time();
+    pc->sockaddr = aslbData->peerArray[pc->tries].sockaddr;
+    pc->socklen = aslbData->peerArray[pc->tries].socklen;
+    pc->name = &aslbData->peerArray[pc->tries].name;
 
-    pc->cached = 0;
-    pc->connection = NULL;
-
-    hash = aslbp->hash;
-
-    for ( ;; ) {
-
-        for (i = 0; i < (ngx_uint_t) aslbp->addrlen; i++) {
-            hash = (hash * 113 + aslbp->addr[i]) % 6271;
-        }
-
-        w = hash % aslbp->rrp.peers->total_weight;
-        peer = aslbp->rrp.peers->peer;
-        p = 0;
-
-        while (w >= peer->weight) {
-            w -= peer->weight;
-            peer = peer->next;
-            p++;
-        }
-
-        n = p / (8 * sizeof(uintptr_t));
-        m = (uintptr_t) 1 << p % (8 * sizeof(uintptr_t));
-
-        if (aslbp->rrp.tried[n] & m) {
-            goto next;
-        }
-
-        ngx_log_debug2(NGX_LOG_DEBUG_HTTP, pc->log, 0,
-                       "get aslb peer, hash: %ui %04XL", p, (uint64_t) m);
-
-        if (peer->down) {
-            goto next;
-        }
-
-        if (peer->max_fails
-            && peer->fails >= peer->max_fails
-            && now - peer->checked <= peer->fail_timeout)
-        {
-            goto next;
-        }
-
-        if (peer->max_conns && peer->conns >= peer->max_conns) {
-            goto next;
-        }
-
-        break;
-
-    next:
-
-        if (++aslbp->tries > 20) {
-            ngx_http_upstream_rr_peers_unlock(aslbp->rrp.peers);
-            return aslbp->get_rr_peer(pc, &aslbp->rrp);
-        }
-    }
-
-    aslbp->rrp.current = peer;
-
-    pc->sockaddr = peer->sockaddr;
-    pc->socklen = peer->socklen;
-    pc->name = &peer->name;
-
-    peer->conns++;
-
-    if (now - peer->checked > peer->fail_timeout) {
-        peer->checked = now;
-    }
-
-    ngx_http_upstream_rr_peers_unlock(aslbp->rrp.peers);
-
-    aslbp->rrp.tried[n] |= m;
-    aslbp->hash = hash;
+    ngx_log_error(NGX_LOG_INFO, pc->log, 0, 
+        "selecting \"%V\" from \"%V\" in iteration %ui",
+        &aslbData->peerArray[pc->tries].name,
+        &aslbData->peerArray[pc->tries].server,
+        pc->tries);
 
     return NGX_OK;
 }
