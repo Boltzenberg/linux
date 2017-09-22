@@ -11,6 +11,9 @@ static ngx_int_t ngx_http_upstream_init_aslb_peer(ngx_http_request_t *r,
     ngx_http_upstream_srv_conf_t *us);
 static ngx_int_t ngx_http_upstream_get_aslb_peer(ngx_peer_connection_t *pc,
     void *data);
+void ngx_http_upstream_free_aslb_peer(ngx_peer_connection_t *pc,
+    void *data, ngx_uint_t state);
+    
 
 // Data structs for handling requests
 typedef struct {
@@ -160,14 +163,19 @@ static ngx_int_t
 ngx_http_upstream_init_aslb_peer(ngx_http_request_t *r,
     ngx_http_upstream_srv_conf_t *us)
 {
+    ngx_http_upstream_aslb_data_t *aslbData = us->peer.data;
+
     ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, 
         "JONRO: ngx_http_upstream_init_aslb_peer");
     
     // Combine the ASLB health data with the servers configured
     // in this upstream pool.
 
-    r->upstream->peer.data = us->peer.data;
+    // Set tries to the number of peers and count down from there.
+    r->upstream->peer.data = aslbData;
+    r->upstream->peer.tries = aslbData->peerCount;
     r->upstream->peer.get = ngx_http_upstream_get_aslb_peer;
+    r->upstream->peer.free = ngx_http_upstream_free_aslb_peer;
 
     return NGX_OK;
 }
@@ -178,29 +186,52 @@ ngx_http_upstream_init_aslb_peer(ngx_http_request_t *r,
 static ngx_int_t
 ngx_http_upstream_get_aslb_peer(ngx_peer_connection_t *pc, void *data)
 {
-    ngx_http_upstream_aslb_data_t  *aslbData = data;
+    ngx_http_upstream_aslb_data_t *aslbData = data;
+    ngx_uint_t peerIndex = aslbData->peerCount - pc->tries;
 
     ngx_log_error(NGX_LOG_INFO, pc->log, 0, 
-        "JONRO: ngx_http_upstream_get_aslb_peer");
+        "JONRO: ngx_http_upstream_get_aslb_peer: (try %ui of %ui)",
+        peerIndex, aslbData->peerCount);
     
     ngx_log_debug1(NGX_LOG_DEBUG_HTTP, pc->log, 0,
                    "get aslb peer, try: %ui", pc->tries);
 
-    if (pc->tries >= aslbData->peerCount) {
+    if (peerIndex == aslbData->peerCount) {
         ngx_log_error(NGX_LOG_INFO, pc->log, 0, 
             "Out of options for peers to send to!");
         return NGX_ERROR;
     }
 
-    pc->sockaddr = aslbData->peerArray[pc->tries].sockaddr;
-    pc->socklen = aslbData->peerArray[pc->tries].socklen;
-    pc->name = &aslbData->peerArray[pc->tries].name;
-
     ngx_log_error(NGX_LOG_INFO, pc->log, 0, 
         "selecting \"%V\" from \"%V\" in iteration %ui",
-        &aslbData->peerArray[pc->tries].name,
-        &aslbData->peerArray[pc->tries].server,
-        pc->tries);
+        &aslbData->peerArray[peerIndex].name,
+        &aslbData->peerArray[peerIndex].server,
+        peerIndex);
+
+    pc->sockaddr = aslbData->peerArray[peerIndex].sockaddr;
+    pc->socklen = aslbData->peerArray[peerIndex].socklen;
+    pc->name = &aslbData->peerArray[peerIndex].name;
 
     return NGX_OK;
+}
+
+void
+ngx_http_upstream_free_aslb_peer(
+    ngx_peer_connection_t *pc,
+    void *data,
+    ngx_uint_t state)
+{
+    ngx_http_upstream_aslb_data_t *aslbData = data;
+    ngx_uint_t peerIndex = aslbData->peerCount - pc->tries;
+
+    ngx_log_error(NGX_LOG_INFO, pc->log, 0, 
+        "JONRO: ngx_http_upstream_free_aslb_peer (try %ui of %ui): %xi",
+        peerIndex, aslbData->peerCount, state);
+    
+    // Retry on connection failure or bail otherwise.
+    if ((state & NGX_PEER_FAILED) == NGX_PEER_FAILED) {
+        pc->tries--;
+    } else {
+        pc->tries = 0;
+    }
 }
