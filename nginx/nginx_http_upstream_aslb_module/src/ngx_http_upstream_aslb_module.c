@@ -2,34 +2,33 @@
 #include <ngx_core.h>
 #include <ngx_http.h>
 
-typedef struct {
-    /* the round robin data must be first */
-    ngx_http_upstream_rr_peer_data_t   rrp;
-
-    ngx_uint_t                         hash;
-
-    u_char                             addrlen;
-    u_char                            *addr;
-
-    u_char                             tries;
-
-    ngx_event_get_peer_pt              get_rr_peer;
-} ngx_http_upstream_aslb_peer_data_t;
-
-
+// Forward declarations
+static char *ngx_http_upstream_setup_aslb(ngx_conf_t *cf, ngx_command_t *cmd,
+    void *conf);
+static ngx_int_t ngx_http_upstream_init_aslb(ngx_conf_t *cf, 
+    ngx_http_upstream_srv_conf_t *us);
 static ngx_int_t ngx_http_upstream_init_aslb_peer(ngx_http_request_t *r,
     ngx_http_upstream_srv_conf_t *us);
 static ngx_int_t ngx_http_upstream_get_aslb_peer(ngx_peer_connection_t *pc,
     void *data);
-static char *ngx_http_upstream_aslb(ngx_conf_t *cf, ngx_command_t *cmd,
-    void *conf);
 
+// Data structs for handling requests
+typedef struct {
+    /* the round robin data must be first */
+    ngx_http_upstream_rr_peer_data_t   rrp;
+    ngx_uint_t                         hash;
+    u_char                             addrlen;
+    u_char                            *addr;
+    u_char                             tries;
+    ngx_event_get_peer_pt              get_rr_peer;
+} ngx_http_upstream_aslb_peer_data_t;
 
-static ngx_command_t  ngx_http_upstream_aslb_commands[] = {
+// Module registration
+static ngx_command_t ngx_http_upstream_aslb_commands[] = {
 
     { ngx_string("aslb"),
       NGX_HTTP_UPS_CONF|NGX_CONF_NOARGS,
-      ngx_http_upstream_aslb,
+      ngx_http_upstream_setup_aslb,
       0,
       0,
       NULL },
@@ -37,8 +36,7 @@ static ngx_command_t  ngx_http_upstream_aslb_commands[] = {
       ngx_null_command
 };
 
-
-static ngx_http_module_t  ngx_http_upstream_aslb_module_ctx = {
+static ngx_http_module_t ngx_http_upstream_aslb_module_ctx = {
     NULL,                                  /* preconfiguration */
     NULL,                                  /* postconfiguration */
 
@@ -52,8 +50,7 @@ static ngx_http_module_t  ngx_http_upstream_aslb_module_ctx = {
     NULL                                   /* merge location configuration */
 };
 
-
-ngx_module_t  ngx_http_upstream_aslb_module = {
+ngx_module_t ngx_http_upstream_aslb_module = {
     NGX_MODULE_V1,
     &ngx_http_upstream_aslb_module_ctx,    /* module context */
     ngx_http_upstream_aslb_commands,       /* module directives */
@@ -68,9 +65,38 @@ ngx_module_t  ngx_http_upstream_aslb_module = {
     NGX_MODULE_V1_PADDING
 };
 
+// When the aslb directive is encountered in config (valid in the upstream block),
+// this is called to register the init_upstream callback and define the valid
+// modifiers to the load balancer selection.
+static char *
+ngx_http_upstream_setup_aslb(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+{
+    ngx_http_upstream_srv_conf_t  *uscf;
 
-static u_char ngx_http_upstream_aslb_pseudo_addr[3];
+    // ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "JONRO: ngx_http_upstream_aslb_setup");
 
+    uscf = ngx_http_conf_get_module_srv_conf(cf, ngx_http_upstream_module);
+
+    // Make sure we're the only load balancer intialized so far.
+    if (uscf->peer.init_upstream) {
+        ngx_conf_log_error(NGX_LOG_WARN, cf, 0,
+                           "load balancing method redefined");
+    }
+
+    // Register the upstream initialization function.
+    uscf->peer.init_upstream = ngx_http_upstream_init_aslb;
+
+    // Register the valid modifiers for the ASLB load balancer
+    uscf->flags = NGX_HTTP_UPSTREAM_CREATE
+                  |NGX_HTTP_UPSTREAM_FAIL_TIMEOUT
+                  |NGX_HTTP_UPSTREAM_DOWN
+                  |NGX_HTTP_UPSTREAM_BACKUP;
+
+    return NGX_CONF_OK;
+}
+
+// When configuration is loaded, this method initializes the group
+// of servers in the upstream being handled by ASLB.
 static ngx_int_t
 ngx_http_upstream_init_aslb(ngx_conf_t *cf, ngx_http_upstream_srv_conf_t *us)
 {
@@ -85,7 +111,10 @@ ngx_http_upstream_init_aslb(ngx_conf_t *cf, ngx_http_upstream_srv_conf_t *us)
     return NGX_OK;
 }
 
+static u_char ngx_http_upstream_aslb_pseudo_addr[3];
 
+// When a request comes in, this method gets all of the data needed
+// to successfully select an upstream server for the request.
 static ngx_int_t
 ngx_http_upstream_init_aslb_peer(ngx_http_request_t *r,
     ngx_http_upstream_srv_conf_t *us)
@@ -139,7 +168,9 @@ ngx_http_upstream_init_aslb_peer(ngx_http_request_t *r,
     return NGX_OK;
 }
 
-
+// Actually make the selection of which upstream server to use.
+// Fill in the sockaddr, socklen, and name fields of pc.  data
+// is what was created in ngx_http_upstream_init_aslb_peer
 static ngx_int_t
 ngx_http_upstream_get_aslb_peer(ngx_peer_connection_t *pc, void *data)
 {
@@ -241,29 +272,4 @@ ngx_http_upstream_get_aslb_peer(ngx_peer_connection_t *pc, void *data)
     aslbp->hash = hash;
 
     return NGX_OK;
-}
-
-
-static char *
-ngx_http_upstream_aslb(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
-{
-    ngx_http_upstream_srv_conf_t  *uscf;
-
-    ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "JONRO: aslb registration function");
-
-    uscf = ngx_http_conf_get_module_srv_conf(cf, ngx_http_upstream_module);
-
-    if (uscf->peer.init_upstream) {
-        ngx_conf_log_error(NGX_LOG_WARN, cf, 0,
-                           "load balancing method redefined");
-    }
-
-    uscf->peer.init_upstream = ngx_http_upstream_init_aslb;
-
-    uscf->flags = NGX_HTTP_UPSTREAM_CREATE
-                  |NGX_HTTP_UPSTREAM_FAIL_TIMEOUT
-                  |NGX_HTTP_UPSTREAM_DOWN
-                  |NGX_HTTP_UPSTREAM_BACKUP;
-
-    return NGX_CONF_OK;
 }
