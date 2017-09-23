@@ -13,7 +13,6 @@ static ngx_int_t ngx_http_upstream_get_aslb_peer(ngx_peer_connection_t *pc,
     void *data);
 void ngx_http_upstream_free_aslb_peer(ngx_peer_connection_t *pc,
     void *data, ngx_uint_t state);
-    
 
 // Data structs for handling requests
 typedef struct {
@@ -106,29 +105,39 @@ ngx_http_upstream_init_aslb(ngx_conf_t *cf, ngx_http_upstream_srv_conf_t *us)
 
     ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "JONRO: aslb peer initialization");
 
+    // We need there to be servers in the upstream config block
     if (us->servers == NULL) {
-        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "ASLB is only valid for upstream servers");
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+            "ASLB is only valid for upstream servers");
         return NGX_ERROR;
     }
 
+    // Count the number of addresses.  There may be many per server (v4 and v6)
     server = us->servers->elts;
     cAddr = 0;
     for (ngx_uint_t i = 0; i < us->servers->nelts; i++) {
         cAddr += server[i].naddrs;
     }
 
+    // If we didn't find any addresses, that's trouble.
     if (cAddr == 0) {
-        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "No servers in upstream \"%V\" in %s:%ui",
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, 
+            "No servers in upstream \"%V\" in %s:%ui",
             &us->host, us->file_name, us->line);
         return NGX_ERROR;
     }
 
-    peerArray = ngx_pcalloc(cf->pool, sizeof(ngx_http_upstream_aslb_peer_t) * cAddr);
+    // Allocate the memory for the array of addresses and supporting info
+    peerArray = ngx_pcalloc(cf->pool, 
+        sizeof(ngx_http_upstream_aslb_peer_t) * cAddr);
+
     if (peerArray == NULL) {
-        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "OOM creating the peer array");
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, 
+            "OOM creating the peer array");
         return NGX_ERROR;
     }
 
+    // Loop through the servers, adding all addresses to the peer array
     for (ngx_uint_t iPeer = 0, iServer = 0;
          iServer < us->servers->nelts;
          iServer++) {
@@ -143,6 +152,7 @@ ngx_http_upstream_init_aslb(ngx_conf_t *cf, ngx_http_upstream_srv_conf_t *us)
         }
     }
 
+    // Store the whole thing on the ASLB data object
     data = ngx_pcalloc(cf->pool, sizeof(ngx_http_upstream_aslb_data_t));
     if (data == NULL) {
         ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "OOM creating the ASLB data");
@@ -151,6 +161,8 @@ ngx_http_upstream_init_aslb(ngx_conf_t *cf, ngx_http_upstream_srv_conf_t *us)
 
     data->peerCount = cAddr;
     data->peerArray = peerArray;
+
+    // Initialize the upstream peer configuration.
     us->peer.data = data;
     us->peer.init = ngx_http_upstream_init_aslb_peer;
 
@@ -159,6 +171,7 @@ ngx_http_upstream_init_aslb(ngx_conf_t *cf, ngx_http_upstream_srv_conf_t *us)
 
 // When a request comes in, this method gets all of the data needed
 // to successfully select an upstream server for the request.
+// Set the r->upstream->peer.data, tries, get and free in here.
 static ngx_int_t
 ngx_http_upstream_init_aslb_peer(ngx_http_request_t *r,
     ngx_http_upstream_srv_conf_t *us)
@@ -182,16 +195,22 @@ ngx_http_upstream_init_aslb_peer(ngx_http_request_t *r,
 
 // Actually make the selection of which upstream server to use.
 // Fill in the sockaddr, socklen, and name fields of pc.  data
-// is what was created in ngx_http_upstream_init_aslb_peer
+// is what was created in ngx_http_upstream_init_aslb_peer.
+// Set pc->sockaddr, socklen, name in here.
 static ngx_int_t
 ngx_http_upstream_get_aslb_peer(ngx_peer_connection_t *pc, void *data)
 {
+    // peerIndex assumes the aslbData peerArray is sorted from "best" to
+    // "worst" per ASLB algorithms.  It uses the pc->tries value to keep
+    // track of where in the array we are in terms of retries.  When 
+    // pc->tries == 0, nginx stops retrying, so we count down the remaining
+    // retries and turn that number in to the current index.
     ngx_http_upstream_aslb_data_t *aslbData = data;
     ngx_uint_t peerIndex = aslbData->peerCount - pc->tries;
 
     ngx_log_error(NGX_LOG_INFO, pc->log, 0, 
         "JONRO: ngx_http_upstream_get_aslb_peer: (try %ui of %ui)",
-        peerIndex, aslbData->peerCount);
+        peerIndex + 1, aslbData->peerCount);
     
     ngx_log_debug1(NGX_LOG_DEBUG_HTTP, pc->log, 0,
                    "get aslb peer, try: %ui", pc->tries);
@@ -215,6 +234,10 @@ ngx_http_upstream_get_aslb_peer(ngx_peer_connection_t *pc, void *data)
     return NGX_OK;
 }
 
+// Called once per call to ngx_http_upstream_get_aslb_peer to clean up
+// resources and do bookkeeping.  This can trigger retries by keeping
+// pc->tries > 0.  state indicates if the connection to the peer returned
+// by get_aslb_peer succeeded and/or if the response was success or failure.
 void
 ngx_http_upstream_free_aslb_peer(
     ngx_peer_connection_t *pc,
@@ -226,7 +249,7 @@ ngx_http_upstream_free_aslb_peer(
 
     ngx_log_error(NGX_LOG_INFO, pc->log, 0, 
         "JONRO: ngx_http_upstream_free_aslb_peer (try %ui of %ui): %xi",
-        peerIndex, aslbData->peerCount, state);
+        peerIndex + 1, aslbData->peerCount, state);
     
     // Retry on connection failure or bail otherwise.
     if ((state & NGX_PEER_FAILED) == NGX_PEER_FAILED) {
