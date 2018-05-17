@@ -1,0 +1,3 @@
+nginx build goes to: /usr/local/nginx
+
+auto/configure --without-http_rewrite_module --without-http_gzip_module --add-module=/home/jon/repo/nginx/nginx-http-scratch-module

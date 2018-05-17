@@ -1,0 +1,10 @@
+nginx build goes to: /usr/local/nginx
+
+auto/configure --without-http_rewrite_module --without-http_gzip_module --add-module=/home/jon/repo/nginx/nginx_http_upstream_aslb_module
+
+gdb notes:
+"gdb -p <PID>" to attach to a running process
+"continue" to continue execution once attached to a process
+"backtrace" to get a callstack when the process is broken
+"quit" to exit
+
