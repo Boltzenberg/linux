@@ -50,7 +50,7 @@ int main(int argc, char **argv)
                             {
                                 if (cb == -1)
                                 {
-                                    printf("recv failed: %d\n", errno);
+                                    printf("recv failed: %s\n", strerror(errno));
                                 }
                                 break;
                             }
@@ -61,24 +61,24 @@ int main(int argc, char **argv)
                         }
                         else
                         {
-                            printf("accept failed: %d\n", errno);
+                            printf("accept failed: %s\n", strerror(errno));
                             break;
                         }
 					}
 				}
 				else
 				{
-					printf("listen failed: %d\n", errno);
+					printf("listen failed: %s\n", strerror(errno));
 				}
 			}
 			else
 			{
-				printf("bind failed: %d\n", errno);
+				printf("bind failed: %s\n", strerror(errno));
 			}
 		}
 		else
 		{
-			printf("setsocopt failed: %d\n", errno);
+			printf("setsocopt failed: %s\n", strerror(errno));
 		}
         
         close(server);

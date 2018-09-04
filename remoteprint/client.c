@@ -32,14 +32,14 @@ int main(int argc, char **argv)
             ssize_t cb = send(s, argv[3], strlen(argv[3]), 0);
             if (cb == -1)
             {
-                printf("Send failed: %d\n", errno);
+                printf("Send failed: %s\n", strerror(errno));
             }
 
             close(s);
 		}
 		else
 		{
-			printf("Connection failed: %d\n", errno);
+			printf("Connection failed: %s\n", strerror(errno));
 		}
 	}
 
